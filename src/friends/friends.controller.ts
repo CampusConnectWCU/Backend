@@ -99,4 +99,13 @@ export class FriendsController {
         await this.friendsService.unblockUser(currentUserId, dto.target);
         return { message: 'User unblocked.' };
     }
+
+    @Post('suggestions')
+    async getSuggestions(
+        @CurrentUser() currentUserId: string,
+        @Body('search') search?: string,
+    ): Promise<any> {
+        const suggestions = await this.friendsService.suggestFriends(currentUserId, search);
+        return { suggestions };
+    }
 }

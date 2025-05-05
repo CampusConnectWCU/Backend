@@ -176,7 +176,8 @@ export class FriendsService {
         const friendIds = user.friends || [];
         const friends = await Promise.all(friendIds.map(async (friendId) => {
             const friend = await this.getUser(friendId);
-            return { id: friend._id as string, username: friend.username };
+            const campus = typeof friend.campus === 'object' ? (friend.campus as any).name : friend.campus;
+            return { id: friend._id as string, username: friend.username, campus: campus };
         }));
         return friends;
     }
@@ -189,7 +190,8 @@ export class FriendsService {
         const requestIds = user.friendRequests || [];
         const requests = await Promise.all(requestIds.map(async (id) => {
             const requester = await this.getUser(id);
-            return { id: requester._id as string, username: requester.username };
+            const campus = typeof requester.campus === 'object' ? (requester.campus as any).name : requester.campus;
+            return { id: requester._id as string, username: requester.username, campus: campus };
         }));
         return requests;
     }
@@ -202,7 +204,8 @@ export class FriendsService {
         const sentIds = user.sentFriendRequests || [];
         const sentRequests = await Promise.all(sentIds.map(async (id) => {
             const target = await this.getUser(id);
-            return { id: target._id as string, username: target.username };
+            const campus = typeof target.campus === 'object' ? (target.campus as any).name : target.campus;
+            return { id: target._id as string, username: target.username, campus: campus };
         }));
         return sentRequests;
     }
@@ -215,8 +218,78 @@ export class FriendsService {
         const blockedIds = user.blockedUsers || [];
         const blockedUsers = await Promise.all(blockedIds.map(async (id) => {
             const blocked = await this.getUser(id);
-            return { id: blocked._id as string, username: blocked.username };
+            const campus = typeof blocked.campus === 'object' ? (blocked.campus as any).name : blocked.campus;
+            return { id: blocked._id as string, username: blocked.username, campus: campus };
         }));
         return blockedUsers;
+    }
+
+    /**
+     * Suggests friends based on mutual friends, campus, and major.
+     * This method computes a score for each user based on the number of mutual friends,
+     * whether they are on the same campus, and if they share the same major.
+     * The highest weighted scores are returned as suggestions. 
+     * @param currentUserId 
+     * @returns 
+     */
+    async suggestFriends(
+        currentUserId: string,
+        search?: string,
+    ): Promise<{ id: string; username: string; message: string }[]> {
+        const me = await this.getUser(currentUserId);
+        let candidates = await this.usersRepository.findAllExcept(currentUserId);
+        // exclude existing relations
+        const excluded = new Set([
+            ...(me.friends || []),
+            ...(me.sentFriendRequests || []),
+            ...(me.friendRequests || []),
+            ...(me.blockedUsers || []),
+        ]);
+        candidates = candidates.filter(u => !excluded.has(u._id as string));
+
+        // if search provided, filter by username or fullName (case-insensitive)
+        if (search?.trim()) {
+            const term = search.trim().toLowerCase();
+            candidates = candidates.filter(u =>
+                u.username.toLowerCase().includes(term) ||
+                (u.fullName?.toLowerCase().includes(term))
+            );
+        }
+
+        // compute score and message
+        const scored = candidates.map(u => {
+            const mutual = (me.friends || []).filter(f => u.friends?.includes(f)).length;
+            const sameCampus = (
+                typeof u.campus === 'object' ? (u.campus as any).id : u.campus
+            ) === (
+                typeof me.campus === 'object' ? (me.campus as any).id : me.campus
+            );
+            const sameMajor = !!(u.major && u.major === me.major);
+            // assign mutual friends a higher weight 
+            let score = mutual * 3 + (sameCampus ? 2 : 0) + (sameMajor ? 1 : 0);
+
+            let message: string;
+            if (mutual > 0) {
+                message = `${mutual} mutual friends`;
+            } else if (sameCampus && u.major) {
+                message = `${u.major ? u.major + ' major' : 'Student'} at ${(u.campus as any).name}`;
+            } else if (sameMajor) {
+                message = `${u.major ? u.major + ' major' : 'Student'} at ${(u.campus as any).name}`;
+            } else {
+                message = `${u.major ? u.major + ' major' : 'Student'} at ${(u.campus as any).name}`;
+            }
+
+            return { user: u, score, message };
+        });
+
+        // pick top 6
+        return scored
+            .sort((a, b) => b.score - a.score)
+            .slice(0, 6)
+            .map(s => ({
+                id: s.user._id as string,
+                username: s.user.username,
+                message: s.message,
+            }));
     }
 }

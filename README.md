@@ -1,2 +1,0 @@
-# Backend
-Campus Connect Backend

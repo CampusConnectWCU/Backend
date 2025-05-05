@@ -70,6 +70,44 @@ export class MessageRepository {
             throw new Error('Unauthorized');
         }
         await this.messageModel.findByIdAndDelete(messageId).exec();
+    }
 
+    /** Returns the most recent message in a channel */
+    async findLast(channelId: string): Promise<IMessage | null> {
+        const msg = await this.messageModel
+            .findOne({ channelId })
+            .sort({ createdAt: -1 })
+            .lean()
+            .exec();
+        return msg && { ...msg, _id: msg._id.toString() };
+    }
+
+    /** Counts messages in channel not yet read by userId */
+    async countUnread(channelId: string, userId: string): Promise<number> {
+        return this.messageModel
+            .countDocuments({ channelId, readBy: { $ne: userId } })
+            .exec();
+    }
+
+    /** Marks all messages in channel as read by userId */
+    async markRead(channelId: string, userId: string): Promise<void> {
+        await this.messageModel
+            .updateMany(
+                { channelId, readBy: { $ne: userId } },
+                { $addToSet: { readBy: userId } },
+            )
+            .exec();
+    }
+
+    /** Searches messages in a channel for a given query string */
+    async queryMessages(channelId: string, query: string, limit: number): Promise<IMessage[]> {
+        const regex = new RegExp(query, 'i'); // Case-insensitive search
+        const messages = await this.messageModel
+            .find({ channelId, content: regex })
+            .sort({ createdAt: -1 })
+            .limit(limit)
+            .lean()
+            .exec();
+        return messages.map(m => ({ ...m, _id: m._id.toString() }));
     }
 }
